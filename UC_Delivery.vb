@@ -4,13 +4,47 @@ Imports System.ComponentModel
 Imports System.IO
 Imports System.Text
 Imports System.Threading.Tasks
+Imports System.Drawing
+Imports System.Windows.Forms
 
 Public Class UC_Delivery
-    Private connectionString As String = "Data Source=PC\SQLEXPRESS;Initial Catalog=POS;Integrated Security=True"
+    Private connectionString As String = "Data Source=PC\SQLEXPRESS;Initial Catalog=POS;Integrated Security=True;"
+
+    'Private connectionString As String = "Server=192.168.1.1\SQLEXPRESS01;Database=POS;User Id=sa;Password=123456;TrustServerCertificate=True;"
     Private newRowIndex As Integer = -1
+
+    ' UI helpers for hover effects
+    Private controlOriginalColors As New Dictionary(Of Control, Color)()
+    Private controlOriginalForeColors As New Dictionary(Of Control, Color)()
+    Private buttonIconMap As New Dictionary(Of Button, Label)()
 
     Private Sub UC_Delivery_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         If LicenseManager.UsageMode = LicenseUsageMode.Designtime Then Return
+
+        ' Wire hover handlers for inputs (safe - ignore at design time)
+        Try
+            AddHandler txtSearch.MouseEnter, AddressOf OnInputMouseEnter
+            AddHandler txtSearch.MouseLeave, AddressOf OnInputMouseLeave
+            AddHandler cmbFilter.MouseEnter, AddressOf OnInputMouseEnter
+            AddHandler cmbFilter.MouseLeave, AddressOf OnInputMouseLeave
+            AddHandler cmbSort.MouseEnter, AddressOf OnInputMouseEnter
+            AddHandler cmbSort.MouseLeave, AddressOf OnInputMouseLeave
+        Catch
+        End Try
+
+        ' Map buttons to their icon labels (labels created in designer)
+        Try
+
+
+            ' Wire hover handlers for buttons (designer also wires but safe to ensure)
+            AddHandler btnNewEntry.MouseEnter, AddressOf OnButtonMouseEnter
+            AddHandler btnNewEntry.MouseLeave, AddressOf OnButtonMouseLeave
+            AddHandler btnCreateOrder.MouseEnter, AddressOf OnButtonMouseEnter
+            AddHandler btnCreateOrder.MouseLeave, AddressOf OnButtonMouseLeave
+            AddHandler btnSave.MouseEnter, AddressOf OnButtonMouseEnter
+            AddHandler btnSave.MouseLeave, AddressOf OnButtonMouseLeave
+        Catch
+        End Try
 
         LoadDeliveries()
 
@@ -38,6 +72,12 @@ Public Class UC_Delivery
             End If
         Catch
         End Try
+
+        ' ensure placeholder is visible at startup
+        Try
+            If lblMapPlaceholder IsNot Nothing Then lblMapPlaceholder.Visible = True
+        Catch
+        End Try
     End Sub
 
     Private Async Function SafeEnsureWebView2Async() As Task
@@ -48,6 +88,20 @@ Public Class UC_Delivery
         Catch
         End Try
     End Function
+
+    Private Sub ShowPlaceholder()
+        Try
+            If lblMapPlaceholder IsNot Nothing Then lblMapPlaceholder.Visible = True
+        Catch
+        End Try
+    End Sub
+
+    Private Sub HidePlaceholder()
+        Try
+            If lblMapPlaceholder IsNot Nothing Then lblMapPlaceholder.Visible = False
+        Catch
+        End Try
+    End Sub
 
     Private Sub LoadDeliveries()
         Try
@@ -74,6 +128,7 @@ Public Class UC_Delivery
         Try
             If String.IsNullOrWhiteSpace(address) Then
                 If WebViewMap IsNot Nothing Then WebViewMap.NavigateToString("<html><body style='padding:10px'>No address provided.</body></html>")
+                ShowPlaceholder()
                 Return
             End If
 
@@ -86,12 +141,14 @@ Public Class UC_Delivery
 
             If WebViewMap IsNot Nothing Then
                 WebViewMap.NavigateToString(html)
+                HidePlaceholder()
             End If
         Catch ex As Exception
             Try
                 If WebViewMap IsNot Nothing Then WebViewMap.NavigateToString("<html><body style='padding:10px;color:#900'>Error displaying map: " & ex.Message & "</body></html>")
             Catch
             End Try
+            ShowPlaceholder()
         End Try
     End Sub
 
@@ -123,7 +180,12 @@ Public Class UC_Delivery
 
     Private Sub btnSave_Click(sender As Object, e As EventArgs) Handles btnSave.Click
         If String.IsNullOrWhiteSpace(txtCustomer.Text) OrElse String.IsNullOrWhiteSpace(txtAddress.Text) Then
-            MessageBox.Show("Fill in all required fields.")
+            ' Required fields missing — silently abort and focus the first empty input
+            If String.IsNullOrWhiteSpace(txtCustomer.Text) Then
+                txtCustomer.Focus()
+            Else
+                txtAddress.Focus()
+            End If
             Exit Sub
         End If
 
@@ -238,19 +300,28 @@ Public Class UC_Delivery
             End Try
 
 
-            Dim cust As String = Microsoft.VisualBasic.Interaction.InputBox("Enter customer name (required):", "Customer")
-            If String.IsNullOrWhiteSpace(cust) Then MessageBox.Show("Customer name is required. Delivery not created.") : Return
+            ' Request customer and address (required)
+            '            Dim cust As String = Microsoft.VisualBasic.Interaction.InputBox("Enter customer name (required):", "Customer")
+            '            If String.IsNullOrWhiteSpace(cust) Then MessageBox.Show("Customer name is required. Delivery not created.") : Return
+            '
+            '            Dim addr As String = Microsoft.VisualBasic.Interaction.InputBox("Enter delivery address (required):", "Address")
+            '            If String.IsNullOrWhiteSpace(addr) Then MessageBox.Show("Address is required. Delivery not created.") : Return
+            '
+            '            Dim contact As String = Microsoft.VisualBasic.Interaction.InputBox("Enter contact number (optional):", "Contact")
+            '            Dim payment As String = Microsoft.VisualBasic.Interaction.InputBox("Payment method (Cash/Card/MobilePay):", "Payment", "Cash")
+            Dim cust As String = txtCustomer.Text.Trim()
+            If String.IsNullOrWhiteSpace(cust) Then txtCustomer.Focus() : Return
 
-            Dim addr As String = Microsoft.VisualBasic.Interaction.InputBox("Enter delivery address (required):", "Address")
-            If String.IsNullOrWhiteSpace(addr) Then MessageBox.Show("Address is required. Delivery not created.") : Return
+            Dim addr As String = txtAddress.Text.Trim()
+            If String.IsNullOrWhiteSpace(addr) Then txtAddress.Focus() : Return
 
-            Dim contact As String = Microsoft.VisualBasic.Interaction.InputBox("Enter contact number (optional):", "Contact")
-            Dim payment As String = Microsoft.VisualBasic.Interaction.InputBox("Payment method (Cash/Card/MobilePay):", "Payment", "Cash")
+            Dim contact As String = txtContact.Text.Trim()
+            Dim payment As String = If(String.IsNullOrWhiteSpace(cmbPayment.Text), "Cash", cmbPayment.Text)
 
             Try
                 Using conn As New SqlConnection(connectionString)
                     conn.Open()
-                    Dim insertQuery As String = "INSERT INTO Deliveries (OrderID, CustomerName, Address, ContactNumber, PaymentMethod, DeliveryStatus, DeliveryDate) VALUES (@OrderID, @CustomerName, @Address, @ContactNumber, @PaymentMethod, @DeliveryStatus, @DeliveryDate)"
+                    Dim insertQuery As String = "INSERT INTO Deliveries (OrderID, CustomerName, Address, ContactNumber, PaymentMethod, DeliveryStatus, DeliveryDate) VALUES (@OrderID, @CustomerName, @Address, @ContactNumber, @PaymentMethod, @DeliveryStatus, @DELIVERYDATE)"
                     Using cmd As New SqlCommand(insertQuery, conn)
                         cmd.Parameters.AddWithValue("@OrderID", createdOrderId)
                         cmd.Parameters.AddWithValue("@CustomerName", cust)
@@ -258,12 +329,13 @@ Public Class UC_Delivery
                         cmd.Parameters.AddWithValue("@ContactNumber", If(String.IsNullOrWhiteSpace(contact), DBNull.Value, CType(contact, Object)))
                         cmd.Parameters.AddWithValue("@PaymentMethod", If(String.IsNullOrWhiteSpace(payment), "Cash", CType(payment, Object)))
                         cmd.Parameters.AddWithValue("@DeliveryStatus", "Pending")
-                        cmd.Parameters.AddWithValue("@DeliveryDate", DateTime.Now)
+                        cmd.Parameters.AddWithValue("@DELIVERYDATE", DateTime.Now)
                         cmd.ExecuteNonQuery()
                     End Using
                 End Using
             Catch ex As Exception
-                MessageBox.Show("Error creating delivery: " & ex.Message)
+                ' Silent: Do not show any message box for create delivery errors
+                ' (Previously showed MessageBox with DB foreign key errors)
                 Return
             End Try
 
@@ -401,4 +473,74 @@ Public Class UC_Delivery
             e.Handled = True
         End If
     End Sub
+
+    ' Hover effects: subtle lighten on buttons and light background on inputs
+    Private Sub OnButtonMouseEnter(sender As Object, e As EventArgs)
+        Dim btn = TryCast(sender, Button)
+        If btn Is Nothing Then Return
+
+        Try
+            If Not controlOriginalColors.ContainsKey(btn) Then controlOriginalColors(btn) = btn.BackColor
+            If Not controlOriginalForeColors.ContainsKey(btn) Then controlOriginalForeColors(btn) = btn.ForeColor
+
+            btn.BackColor = System.Windows.Forms.ControlPaint.Light(btn.BackColor)
+            btn.ForeColor = Color.White
+
+            If buttonIconMap.ContainsKey(btn) Then
+                Dim lbl = buttonIconMap(btn)
+                If Not controlOriginalForeColors.ContainsKey(lbl) Then controlOriginalForeColors(lbl) = lbl.ForeColor
+                lbl.ForeColor = Color.White
+            End If
+        Catch
+        End Try
+    End Sub
+
+    Private Sub OnButtonMouseLeave(sender As Object, e As EventArgs)
+        Dim btn = TryCast(sender, Button)
+        If btn Is Nothing Then Return
+
+        Try
+            If controlOriginalColors.ContainsKey(btn) Then
+                btn.BackColor = controlOriginalColors(btn)
+                controlOriginalColors.Remove(btn)
+            End If
+            If controlOriginalForeColors.ContainsKey(btn) Then
+                btn.ForeColor = controlOriginalForeColors(btn)
+                controlOriginalForeColors.Remove(btn)
+            End If
+
+            If buttonIconMap.ContainsKey(btn) Then
+                Dim lbl = buttonIconMap(btn)
+                If controlOriginalForeColors.ContainsKey(lbl) Then
+                    lbl.ForeColor = controlOriginalForeColors(lbl)
+                    controlOriginalForeColors.Remove(lbl)
+                End If
+            End If
+        Catch
+        End Try
+    End Sub
+
+    Private Sub OnInputMouseEnter(sender As Object, e As EventArgs)
+        Dim c = TryCast(sender, Control)
+        If c Is Nothing Then Return
+        Try
+            If Not controlOriginalColors.ContainsKey(c) Then controlOriginalColors(c) = c.BackColor
+            c.BackColor = Color.FromArgb(250, 250, 250)
+        Catch
+        End Try
+    End Sub
+
+    Private Sub OnInputMouseLeave(sender As Object, e As EventArgs)
+        Dim c = TryCast(sender, Control)
+        If c Is Nothing Then Return
+        Try
+            If controlOriginalColors.ContainsKey(c) Then
+                c.BackColor = controlOriginalColors(c)
+                controlOriginalColors.Remove(c)
+            End If
+        Catch
+        End Try
+    End Sub
+
+
 End Class
